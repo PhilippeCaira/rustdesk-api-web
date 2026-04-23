@@ -10,9 +10,18 @@ import { useAppStore } from '@/store/app'
 const app = useAppStore()
 
 export const toWebClientLink = (row) => {
-  //v2
-  console.log(app.setting.rustdeskConfig)
-  window.open(`${app.setting.rustdeskConfig.api_server}/webclient2/#/${row.id}`)
+  // Fork customisation: if the peer's address-book entry carries a
+  // plaintext `password`, embed it in the URL fragment so the web
+  // client skips the password prompt. Matches the `share_token` flow
+  // already shipped upstream (ljw.js:40) but reads from the AB row
+  // rather than a freshly-issued share token — that's the whole point
+  // of a managed fleet where the peer password is set by the admin at
+  // first boot and kept in the AB.
+  const base = `${app.setting.rustdeskConfig.api_server}/webclient2/#/${row.id}`
+  const url = row.password
+    ? `${base}?password=${encodeURIComponent(row.password)}`
+    : base
+  window.open(url)
 }
 
 export async function getPeerSlat (id) {
