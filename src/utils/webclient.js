@@ -4,24 +4,44 @@ import * as message from '@/utils/webclient/message'
 import { ElMessageBox } from 'element-plus'
 import { T } from '@/utils/i18n'
 import { useAppStore } from '@/store/app'
+import { list as abList } from '@/api/address_book'
+import { list as myAbList } from '@/api/my/address_book'
 
 
 
 const app = useAppStore()
 
-export const toWebClientLink = (row) => {
-  // Fork customisation: if the peer's address-book entry carries a
-  // plaintext `password`, embed it in the URL fragment so the web
-  // client skips the password prompt. Matches the `share_token` flow
-  // already shipped upstream (ljw.js:40) but reads from the AB row
-  // rather than a freshly-issued share token — that's the whole point
-  // of a managed fleet where the peer password is set by the admin at
-  // first boot and kept in the AB.
+export const toWebClientLink = async (row) => {
+  // Fork customisation: embed the peer's plaintext password into the
+  // web client URL fragment (`?password=<pw>`) so the prompt is
+  // skipped. The address-book view already includes `password` in
+  // each row, but the Peers / Devices list does not — fall back to a
+  // keyword-scoped address-book lookup so the auto-login works from
+  // every button that calls toWebClientLink.
   const base = `${app.setting.rustdeskConfig.api_server}/webclient2/#/${row.id}`
-  const url = row.password
-    ? `${base}?password=${encodeURIComponent(row.password)}`
-    : base
+  let pw = row.password
+  if (!pw && row.id) {
+    pw = await _lookupPasswordInAddressBook(row.id)
+  }
+  const url = pw ? `${base}?password=${encodeURIComponent(pw)}` : base
   window.open(url)
+}
+
+async function _lookupPasswordInAddressBook (id) {
+  // Try admin AB first (superset), then personal AB. Either endpoint
+  // 403s for non-privileged users — that's fine, we silently fall
+  // through and the button still opens a prompt.
+  for (const api of [abList, myAbList]) {
+    try {
+      const res = await api({ keyword: id, page_size: 10 })
+      const peers = res?.data?.list || res?.list || []
+      const hit = peers.find((p) => String(p.id) === String(id))
+      if (hit?.password) return hit.password
+    } catch (_e) {
+      // ignore, try next endpoint
+    }
+  }
+  return null
 }
 
 export async function getPeerSlat (id) {
